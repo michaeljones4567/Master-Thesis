@@ -1,3 +1,8 @@
+M. Bogdan, E. van den Berg, W. Su, and E.J. Candes
+October 6, 2013
+
+
+
 T = readtable('data.txt');
 A = table2array(T);
 B = A(2:end,2:end);
