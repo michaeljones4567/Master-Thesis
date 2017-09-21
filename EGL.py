@@ -62,23 +62,22 @@ def F_builder(weights,group_indicator,group_indicator_reshaped,remainder):
     weights_shaped = weights[reshaped_group_indicator]
     weights_shaped = np.squeeze(weights_shaped)
 
-    a = np.sum(np.abs(weights_shaped),1)
-    code.interact(local=dict(globals(), **locals()))
-    group_divide = np.divide(np.reshape(a,[-1,1]),np.abs(weights_shaped))
+    group_weight_sums = np.sum(np.abs(weights_shaped),1)
+    group_divide = np.divide(np.reshape(group_weight_sums,[-1,1]),np.abs(weights_shaped))
 
-    q = group_indicator[-remainder:]
-    y = weights[q]
-    z = np.sum(np.abs(y))
-    group_divide_remainder = np.divide(np.reshape(z,[-1,1]),np.abs(y))
+    remainder_weights_indicators = group_indicator[-remainder:]
+    remainder_weights = weights[remainder_weights_indicators]
+    z = np.sum(np.abs(remainder_weights))
+    group_divide_remainder = np.divide(np.reshape(z,[-1,1]),np.abs(remainder_weights))
 
     group_divide_flattened = np.reshape(group_divide,[-1])
     group_divide_remainder_flattened = np.reshape(group_divide_remainder,[-1])
     group_divides_together = np.concatenate([group_divide_flattened,group_divide_remainder_flattened],0)
 
-    r = np.concatenate([np.reshape(c,[-1]),np.reshape(q,[-1])],0)
-    w = np.argsort(r)
+    master_group_weights = np.concatenate([np.reshape(reshaped_group_indicator,[-1]),np.reshape(remainder_weights_indicators,[-1])],0)
+    master_group_weights_args = np.argsort(master_group_weights)
 
-    group_divides_together = group_divides_together[w]
+    group_divides_together = group_divides_together[master_group_weights_args]
 
     F_1 = np.diag(group_divides_together)
 
