@@ -1,84 +1,75 @@
 import numpy as np
 import code
-import sklearn
-import math
-import scipy
-#import matplotlib.pyplot as plt
 
-from sklearn.linear_model import Lasso
-from sklearn.linear_model import RandomizedLasso
+# Title - Exclusive Group LASSO
+# Author - Michael Jones, UCL
 
-from sklearn.linear_model import LogisticRegression
+# Machine Learning Technique Used
+#----------------------------------
+#       Exclusive Group LASSO, based on c.f. Kong et al 2014 - 'Exclusive Feature Learning on Arbitrary Structures via `1,2-norm.' Groups are made randomly instead of chosen.
+#
+#       Splits features into random groups, then applies LASSO regression across the groups and ridge regression over the entire feature set. See Kong et al 2014 for more details.
+#
+# Output:
+#----------------------------------
+#       A weighting for each feature in the group. The larger the weighting, the more important for classification the feature is deemed.
+#
+#----------------------------------
+# List of important variables:
+#       theta - feature weights
+#       F - matrix that encodes group information. Please see Kong et al. 2014 for more detail.
 
 #====================================================================================================================================================================================#
 # Load Data
 
-Data_cleaned = np.load('data.npy')
+# Rows of data needs to be data points and columns features
 
-X = np.transpose(Data_cleaned) # 116, 13718
+Data_cleaned = np.load('TB_Cured_Data.npy')
+
+# Shape and change data into appropiate type
+X = np.transpose(Data_cleaned)
 X = X.astype(np.float)
 
 #====================================================================================================================================================================================#
 # Parameters
 
-# Data Parameters
+# Set number of runs to repeat the experiment. As the groups are formed randomly, repeat runs are advised.
+Number_of_runs = 5
+
+# Set learning for gradient descent optimisation
+learning_rate = 0.000001
+
+# Set number of loops of optimisation after which to check results
+Number_of_loops_to_check_to_save = 1000
+
+# Data Classification parameters. Tell algorithm how many points in the data are TB patients and how many are not.
 Number_of_data_points_TB = 46
-Number_of_data_points_Clear = 70
+Number_of_data_points_non_TB = 31
 
-Total_data_points = Number_of_data_points_TB + Number_of_data_points_Clear
-
-Number_of_features = np.shape(Data_cleaned)[0]
-
-#   Subset of data point of Parameters
+# Select group sizes over which to run exclusive group LASSO
 Batch_size = 30
 
-L1_Regulariser = 0.05
 L2_regulariser = 0.1
 
 #====================================================================================================================================================================================#
 # Functions
 
-def L1(X,Y,reg):
-
-    clf_l1_LR = LogisticRegression(C=reg, penalty='l1', tol=0.01)
-    clf_l1_LR.fit(X,Y)
-    coefs = np.reshape(clf_l1_LR.coef_,[-1])
-
-    return coefs
-
-def CostFunc(intial_weights,y_hat_matrix,Y,reg):
-
-    intial_weights = np.reshape(intial_weights,[-1,1])
-    intial_weights = np.transpose(intial_weights)
-    y_hat_matrix = np.transpose(y_hat_matrix)
-
-    error = np.transpose(Y) - np.sign(np.sum(np.multiply(intial_weights,y_hat_matrix),axis=1))
-
-    Cost = np.sum(np.square(error)) + np.multiply(reg,np.sqrt(np.sum(np.square(intial_weights))))
-
-    print(Cost)
-    ##
-
-    return Cost
-
-def F_builder(weights,group_indicator,group_indicator_2,remainder):
+def F_builder(weights,group_indicator,group_indicator_reshaped,remainder):
 
     remainder = int(remainder)
 
+    reshaped_group_indicator = np.reshape(group_indicator[0:(len(weights)-remainder)],[-1,Batch_size])
+    weights_shaped = weights[reshaped_group_indicator]
+    weights_shaped = np.squeeze(weights_shaped)
 
-
-    c = np.reshape(group_indicator[0:(len(weights)-remainder)],[-1,Batch_size])
-    d = weights[c]
-    a = np.sum(np.abs(d),1)
-    group_divide = np.divide(np.reshape(a,[-1,1]),np.abs(d))
-
+    a = np.sum(np.abs(weights_shaped),1)
+    code.interact(local=dict(globals(), **locals()))
+    group_divide = np.divide(np.reshape(a,[-1,1]),np.abs(weights_shaped))
 
     q = group_indicator[-remainder:]
     y = weights[q]
     z = np.sum(np.abs(y))
     group_divide_remainder = np.divide(np.reshape(z,[-1,1]),np.abs(y))
-
-
 
     group_divide_flattened = np.reshape(group_divide,[-1])
     group_divide_remainder_flattened = np.reshape(group_divide_remainder,[-1])
@@ -100,110 +91,123 @@ def Sigmoid_1(weights,X):
 
     return 1/(1 + np.exp(-z))
 
-def Sigmoid_2(z):
-    G_of_Z = float(1.0 / float((1.0 + math.exp(-1.0*z))))
-    return G_of_Z
-
 #====================================================================================================================================================================================#
-# Load training data
-
-
-
-
 # Extract data dimensions
-Number_of_data_points = np.shape(X)[0]
+Total_data_points = np.shape(X)[0]
 Number_of_features = np.shape(X)[1]
 
+#====================================================================================================================================================================================#
+# Set up 1 and 0 labelling for classification of data
+
+# Label TB infected patients as 1
 Y1 = np.ones([Number_of_data_points_TB,1])
-Y2 = np.zeros([Number_of_data_points_Clear,1])
+
+# Label non TB infected patients as 0
+Y2 = np.zeros([Number_of_data_points_non_TB,1])
+
+# Concatentate labels into overall data label vector
 Y = np.concatenate((Y1, Y2), axis=0)
 
+# Initialise best cost storer
+Best_cost = np.inf
 
 
-#   Subset of features Parameters
-L2_regulariser_start = 0.5
-L2_regulariser_finish = 0.51
-L2_regulariser_interval = 0.5
+for icount in np.arange(0,Number_of_runs):
 
-#
+    # Set up marker that allows the user to end the program if wished at a later stage.
+    End = 0
 
-# Number of runs
+    # Randomly initialise weights for each feature
+    theta = np.random.randn(Number_of_features,1)
 
-Number_of_runs = 5
+    #====================================================================================================================================================================================#
+    ## Indicators for what groups features are in
+    # Firstly the features are placed into random groups
+    group_indicator = np.random.choice(Number_of_features, Number_of_features, replace=False)
 
-Best_cost = 100000000
+    # Secondly the indicator is re-shaped into a matrix where each column is a group
+    group_indicator_reshaped = np.reshape(group_indicator[0:Number_of_features-np.remainder(Number_of_features,Batch_size)],[-1,Batch_size])
 
-number_of_loops_to_check_to_save = 1000
+    #====================================================================================================================================================================================#
+    ## Incase there are not a perfect amount features to fit into each group, this part of the code deals with this by forming the last group with the remainder of features.
+    # Calculate difference between feature and the number of features
+    Difference = Batch_size - np.remainder(Number_of_features,float(Batch_size))
+    Difference_zeros = np.ones(int(Difference))*(Number_of_features)
 
-for icount in np.arange(L2_regulariser_start,L2_regulariser_finish,L2_regulariser_interval):
+    # Check if whether there is a remainder or not
+    if Difference != Batch_size:
 
-    for jcount in np.arange(0,Number_of_runs):
+        # Generate weights for the remainder of features
+        remainder_weights = np.concatenate([group_indicator[-np.remainder(Number_of_features,Batch_size):],Difference_zeros],0)
 
-        End = 0
+        # Concatenate remainder weights onto reshaped group indicator matrix
+        group_indicator_reshaped = np.concatenate([group_indicator_reshaped,np.reshape(remainder_weights,[1,-1])],0)
 
-        theta = np.load('decentL1L2_theta_L2_Fever_0.5run_0.npy')
+    # Initialise counter for optimisation loops
+    counter = 0
 
-        m = len(Y)
+    # Optimisation while loop
+    while End == 0:
 
-        group_indicator = np.random.choice(Number_of_features, Number_of_features, replace=False)
-        group_indicator_2 = np.reshape(group_indicator[0:Number_of_features-np.remainder(Number_of_features,Batch_size)],[-1,Batch_size])
-        Difference = Batch_size - np.remainder(Number_of_features,float(Batch_size))
-        Difference_zeros = np.ones(int(Difference))*(Number_of_features)
+        # Build F matrix which encodes the group information. See Kong et al 2014 for more information on F.
+        F = F_builder(theta,group_indicator,group_indicator_reshaped,np.remainder(Number_of_features,float(Batch_size)))
 
-        if Difference != Batch_size:
+        # Calculate sigmoid function for logistic regression classification
+        Sigmoid_predictions = Sigmoid_1(theta,X)
+        Difference_predictions_truth = Sigmoid_predictions - Y
 
-            coefs = np.concatenate([group_indicator[-np.remainder(Number_of_features,Batch_size):],Difference_zeros],0)
+        # Calculate derivatives of error part of cost function
+        error_derivatives = np.sum(np.multiply(Difference_predictions_truth,X),0)
 
+        # Note, this is not a pure cost function derivative. See Kong et al 2014 for more detail.
+        total_optimisation_derivative = error_derivatives + np.multiply(L2_regulariser,np.matmul(F,theta))
 
-            group_indicator_2 = np.concatenate([group_indicator_2,np.reshape(coefs,[1,-1])],0)
+        # Update feature weights
+        theta = theta - np.multiply(learning_rate,total_optimisation_derivative)
 
-        counter = 0
+        # Update counter
+        counter += 1
 
-        learning_rate = 0.000001
+        # Calculate error
+        error = Y - Sigmoid_1(theta,X)
 
-        number_of_loops = 70000
+        # Calculate Cost
+        Cost = np.sum(np.square(error)) + np.multiply(L2_regulariser,np.sqrt(np.sum(np.square(theta))))
+        print(counter)
+        print(Cost)
 
-        while End == 0:
+        # Save feature weights
+        if Best_cost < Cost and counter % Number_of_loops_to_check_to_save:
 
-            F = F_builder(theta,group_indicator,group_indicator_2,np.remainder(Number_of_features,float(Batch_size)))
+            Best_cost = Cost
+            np.save('decentL1L2_theta_L2_Fever_'+str(L2_regulariser)+'run_'+str(icount),theta)
 
-            a = Sigmoid_1(theta,X)
-            b = a - Y
-            temp_derivatives = np.sum(np.multiply(b,X),0) #*(alpha/m)
+        # Pause optimisation to allow user to check and analyse current results
+        if counter % number_of_loops == 0:
 
-            first_term = temp_derivatives + np.multiply(icount,np.matmul(F,theta))
-
-            theta = theta - np.multiply(learning_rate,first_term)
-
-            counter += 1
-
-            if counter % number_of_loops == 0:
-
+            # Check if cost has improved
+            if Cost < Best_Cost:
+                # Update best cost storer
                 Best_Cost = Cost
-                Best_w = theta
-                number_of_loops = int(input('Enter number of loops to next step: '))
-                learning_rate = float(input('Learning rate (suggested = 0.0001): '))
-                End = int(input('Enter 1 to end or 0 to continue: '))
 
-                Save = input('Save, yes or no? : ')
+                # Update best set of feature weights
+                Best_theta = theta
 
-                if Save == 'yes':
-                    print('saving')
-                    np.save('decentL1L2_theta_L2_Fever_'+str(icount)+'run_'+str(jcount),theta)
-                    print('saved')
+            # Allow user to interact with program
+            print('Interactive shell. Press ctrl+D to exit shell.')
+            code.interact(local=dict(globals(), **locals()))
 
-                #
+            # Enter number of loops until next pause in program
+            number_of_loops = int(input('Enter number of loops to next step: '))
 
-            error = Y - Sigmoid_1(theta,X)
-            Cost = np.sum(np.square(error)) + np.multiply(L2_regulariser,np.sqrt(np.sum(np.square(theta))))
-            print(counter)
-            print(Cost)
+            # Update learning rate
+            learning_rate = float(input('Learning rate (suggested = 0.0001): '))
 
-            if Best_cost < Cost and counter % number_of_loops_to_check_to_save:
+            # User decide whether to end program or continue
+            End = int(input('Enter 1 to end or 0 to continue: '))
 
-                Best_cost = Cost
-                np.save('decentL1L2_theta_L2_Fever_'+str(icount)+'run_'+str(jcount),theta)
-
-
-print('FINAL')
-#
+            # Save feature weights
+            if Save == 'yes':
+                print('saving')
+                np.save('decentL1L2_theta_L2_Fever_'+str(L2_regulariser)+'run_'+str(icount),theta)
+                print('saved')
